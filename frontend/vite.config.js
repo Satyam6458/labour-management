@@ -9,6 +9,7 @@ export default defineConfig({
       '/api': {
         target: 'https://labour-api.onrender.com',
         changeOrigin: true,
+        secure: false,
       }
     }
   }
