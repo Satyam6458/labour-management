@@ -145,6 +145,41 @@ app.get('/api/attendances', (req, res) => {
     }
 });
 
+// Delete attendance
+app.delete('/api/attendances/:id', authMiddleware, (req, res) => {
+    try {
+        const existing = db.prepare('SELECT id FROM attendances WHERE id = ?').get(req.params.id);
+        if (!existing) return res.status(404).json({ error: 'Attendance not found' });
+        db.prepare('DELETE FROM attendances WHERE id = ?').run(req.params.id);
+        res.json({ message: 'Attendance deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update attendance
+app.put('/api/attendances/:id', authMiddleware, (req, res) => {
+    try {
+        const { status, workSubType, wageRate } = req.body;
+        const existing = db.prepare('SELECT * FROM attendances WHERE id = ?').get(req.params.id);
+        if (!existing) return res.status(404).json({ error: 'Attendance not found' });
+
+        db.prepare(
+            'UPDATE attendances SET status = ?, workSubType = ?, wageRate = ? WHERE id = ?'
+        ).run(
+            status || existing.status,
+            workSubType || existing.workSubType,
+            wageRate || existing.wageRate,
+            req.params.id
+        );
+
+        const attendance = db.prepare('SELECT * FROM attendances WHERE id = ?').get(req.params.id);
+        res.json(attendance);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Mark attendance
 app.post('/api/attendances', authMiddleware, (req, res) => {
     try {
@@ -204,6 +239,43 @@ app.get('/api/payments', (req, res) => {
             'SELECT p.*, l.name as labourName FROM payments p JOIN labours l ON p.labourId = l.id ORDER BY p.date DESC'
         ).all();
         res.json(payments);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete payment
+app.delete('/api/payments/:id', authMiddleware, (req, res) => {
+    try {
+        const existing = db.prepare('SELECT id FROM payments WHERE id = ?').get(req.params.id);
+        if (!existing) return res.status(404).json({ error: 'Payment not found' });
+        db.prepare('DELETE FROM payments WHERE id = ?').run(req.params.id);
+        res.json({ message: 'Payment deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update payment
+app.put('/api/payments/:id', authMiddleware, (req, res) => {
+    try {
+        const { amount, type, date, paymentSubType, note } = req.body;
+        const existing = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
+        if (!existing) return res.status(404).json({ error: 'Payment not found' });
+
+        db.prepare(
+            'UPDATE payments SET amount = ?, type = ?, date = ?, paymentSubType = ?, note = ? WHERE id = ?'
+        ).run(
+            amount !== undefined ? parseFloat(amount) : existing.amount,
+            type || existing.type,
+            date || existing.date,
+            paymentSubType || existing.paymentSubType,
+            note !== undefined ? note : existing.note,
+            req.params.id
+        );
+
+        const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
+        res.json(payment);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

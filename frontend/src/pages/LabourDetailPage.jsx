@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLabours, getAttendances, getPayments, getLabourStats, deleteLabour } from '../api';
-import { formatDate, getBadgeClass } from '../components/shared';
+import { getLabours, getAttendances, getPayments, getLabourStats, deleteLabour, updateAttendance, deleteAttendance, updatePayment, deletePayment } from '../api';
+import { formatDate, getBadgeClass, WORK_SUB_TYPES, ATTENDANCE_STATUSES, PAYMENT_SUB_TYPES } from '../components/shared';
 
 export default function LabourDetailPage({ toast }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [editingAtt, setEditingAtt] = useState(null);
+  const [editingPay, setEditingPay] = useState(null);
+  const [attForm, setAttForm] = useState({ status: 'Full Day', workSubType: 'Normal Work', wageRate: '' });
+  const [payForm, setPayForm] = useState({ amount: '', type: 'Offline', paymentSubType: 'Regular', note: '' });
 
   useEffect(() => {
     loadData();
@@ -90,20 +94,51 @@ export default function LabourDetailPage({ toast }) {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="detail-table">
-            <thead><tr><th>Date</th><th>Status</th><th>Work Type</th><th>Wage</th><th>Earned</th></tr></thead>
+            <thead><tr><th>Date</th><th>Status</th><th>Work Type</th><th>Wage</th><th>Earned</th><th>Actions</th></tr></thead>
             <tbody>
               {attendances.map(a => {
                 let earned = 0;
                 if (a.status === 'Full Day') earned = a.wageRate;
                 else if (a.status === 'Half Day') earned = a.wageRate * 0.5;
                 else if (a.status === 'Overtime') earned = a.wageRate * 1.5;
+                const isEditing = editingAtt === a.id;
                 return (
                   <tr key={a.id}>
-                    <td>{formatDate(a.date)}</td>
-                    <td><span className={`badge ${getBadgeClass(a.status)}`}>{a.status}</span></td>
-                    <td>{a.workSubType || 'Normal'}</td>
-                    <td>₹{a.wageRate}</td>
-                    <td>₹{earned.toLocaleString()}</td>
+                    {isEditing ? (
+                      <>
+                        <td>{formatDate(a.date)}</td>
+                        <td>
+                          <select value={attForm.status} onChange={e => setAttForm({...attForm, status: e.target.value})} style={{padding:'4px'}}>
+                            {ATTENDANCE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <select value={attForm.workSubType} onChange={e => setAttForm({...attForm, workSubType: e.target.value})} style={{padding:'4px'}}>
+                            {WORK_SUB_TYPES.map(w => <option key={w.name} value={w.name}>{w.name}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <input type="number" value={attForm.wageRate} onChange={e => setAttForm({...attForm, wageRate: e.target.value})} style={{width:'80px',padding:'4px'}} />
+                        </td>
+                        <td>₹{(() => { if (attForm.status === 'Full Day') return attForm.wageRate; if (attForm.status === 'Half Day') return attForm.wageRate * 0.5; if (attForm.status === 'Overtime') return attForm.wageRate * 1.5; return 0; })().toLocaleString()}</td>
+                        <td>
+                          <button className="btn btn-sm btn-success" onClick={async () => { await updateAttendance(a.id, attForm); toast('Updated!', 'success'); setEditingAtt(null); loadData(); }}>💾</button>
+                          <button className="btn btn-sm" onClick={() => setEditingAtt(null)} style={{marginLeft:'4px'}}>✕</button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td>{formatDate(a.date)}</td>
+                        <td><span className={`badge ${getBadgeClass(a.status)}`}>{a.status}</span></td>
+                        <td>{a.workSubType || 'Normal'}</td>
+                        <td>₹{a.wageRate}</td>
+                        <td>₹{earned.toLocaleString()}</td>
+                        <td>
+                          <button className="btn btn-sm btn-primary" onClick={() => { setEditingAtt(a.id); setAttForm({status: a.status, workSubType: a.workSubType, wageRate: a.wageRate}); }}>✏️</button>
+                          <button className="btn btn-sm btn-danger" onClick={async () => { if (confirm('Delete this attendance?')) { await deleteAttendance(a.id); toast('Deleted', 'success'); loadData(); } }} style={{marginLeft:'4px'}}>🗑️</button>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -118,22 +153,54 @@ export default function LabourDetailPage({ toast }) {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="detail-table">
-            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Mode</th><th>Note</th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Mode</th><th>Note</th><th>Actions</th></tr></thead>
             <tbody>
               {payments.map(p => {
                 let typeBadge = 'badge-present';
                 if (p.paymentSubType === 'Advance') typeBadge = 'badge-overtime';
                 else if (p.paymentSubType === 'Old Payment') typeBadge = 'badge-halfday';
                 const isNegative = p.amount < 0;
+                const isEditing = editingPay === p.id;
                 return (
                   <tr key={p.id}>
-                    <td>{formatDate(p.date)}</td>
-                    <td><span className={`badge ${typeBadge}`}>{p.paymentSubType || 'Regular'}</span></td>
-                    <td style={{ color: isNegative ? '#e53e3e' : '#38a169', fontWeight: 600 }}>
-                      ₹{p.amount.toLocaleString()}
-                    </td>
-                    <td>{p.type === 'Online' ? '🏦' : '💵'} {p.type}</td>
-                    <td style={{ color: '#888', fontSize: '0.85em' }}>{p.note || '-'}</td>
+                    {isEditing ? (
+                      <>
+                        <td><input type="date" value={payForm.date || p.date} onChange={e => setPayForm({...payForm, date: e.target.value})} style={{padding:'4px'}} /></td>
+                        <td>
+                          <select value={payForm.paymentSubType} onChange={e => setPayForm({...payForm, paymentSubType: e.target.value})} style={{padding:'4px'}}>
+                            {PAYMENT_SUB_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <input type="number" value={payForm.amount} onChange={e => setPayForm({...payForm, amount: e.target.value})} style={{width:'100px',padding:'4px'}} />
+                        </td>
+                        <td>
+                          <select value={payForm.type} onChange={e => setPayForm({...payForm, type: e.target.value})} style={{padding:'4px'}}>
+                            <option value="Online">🏦 Online</option>
+                            <option value="Offline">💵 Offline</option>
+                          </select>
+                        </td>
+                        <td><input type="text" value={payForm.note} onChange={e => setPayForm({...payForm, note: e.target.value})} style={{padding:'4px'}} /></td>
+                        <td>
+                          <button className="btn btn-sm btn-success" onClick={async () => { await updatePayment(p.id, payForm); toast('Updated!', 'success'); setEditingPay(null); loadData(); }}>💾</button>
+                          <button className="btn btn-sm" onClick={() => setEditingPay(null)} style={{marginLeft:'4px'}}>✕</button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td>{formatDate(p.date)}</td>
+                        <td><span className={`badge ${typeBadge}`}>{p.paymentSubType || 'Regular'}</span></td>
+                        <td style={{ color: isNegative ? '#e53e3e' : '#38a169', fontWeight: 600 }}>
+                          ₹{p.amount.toLocaleString()}
+                        </td>
+                        <td>{p.type === 'Online' ? '🏦' : '💵'} {p.type}</td>
+                        <td style={{ color: '#888', fontSize: '0.85em' }}>{p.note || '-'}</td>
+                        <td>
+                          <button className="btn btn-sm btn-primary" onClick={() => { setEditingPay(p.id); setPayForm({amount: p.amount, type: p.type, paymentSubType: p.paymentSubType, note: p.note, date: p.date}); }}>✏️</button>
+                          <button className="btn btn-sm btn-danger" onClick={async () => { if (confirm('Delete this payment?')) { await deletePayment(p.id); toast('Deleted', 'success'); loadData(); } }} style={{marginLeft:'4px'}}>🗑️</button>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 );
               })}

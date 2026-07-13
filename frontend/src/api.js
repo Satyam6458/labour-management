@@ -47,10 +47,14 @@ export const deleteLabour = (id) => API.delete(`/labours/${id}`);
 // ============ ATTENDANCE ============
 export const getAttendances = (labourId) => API.get(`/attendances/${labourId}`);
 export const markAttendance = (data) => API.post('/attendances', data);
+export const updateAttendance = (id, data) => API.put(`/attendances/${id}`, data);
+export const deleteAttendance = (id) => API.delete(`/attendances/${id}`);
 
 // ============ PAYMENTS ============
 export const getPayments = (labourId) => API.get(`/payments/${labourId}`);
 export const addPayment = (data) => API.post('/payments', data);
+export const updatePayment = (id, data) => API.put(`/payments/${id}`, data);
+export const deletePayment = (id) => API.delete(`/payments/${id}`);
 
 // ============ STATS ============
 export const getAllStats = () => API.get('/stats');
