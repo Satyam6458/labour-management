@@ -23,7 +23,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     labourId TEXT NOT NULL,
     date TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('Full Day','Half Day','Absent','Overtime')),
+    status TEXT NOT NULL,
     workSubType TEXT NOT NULL DEFAULT 'Normal',
     wageRate REAL NOT NULL DEFAULT 0,
     FOREIGN KEY (labourId) REFERENCES labours(id) ON DELETE CASCADE
@@ -43,5 +43,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_payment_labour ON payments(labourId);
   CREATE INDEX IF NOT EXISTS idx_payment_date ON payments(date);
 `);
+
+// Migration: Add new columns if they don't exist (for existing databases)
+try {
+  db.exec(`ALTER TABLE attendances ADD COLUMN workSubType TEXT NOT NULL DEFAULT 'Normal'`);
+} catch (e) { /* column already exists */ }
+try {
+  db.exec(`ALTER TABLE attendances ADD COLUMN wageRate REAL NOT NULL DEFAULT 0`);
+} catch (e) { /* column already exists */ }
+// Update old 'Present' status to 'Full Day'
+db.exec(`UPDATE attendances SET status = 'Full Day' WHERE status = 'Present'`);
+// Set wageRate for old records where it's 0
+db.exec(`UPDATE attendances SET wageRate = (SELECT dailyWage FROM labours WHERE labours.id = attendances.labourId) WHERE wageRate = 0`);
 
 module.exports = db;
