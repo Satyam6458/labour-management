@@ -1,0 +1,6 @@
+node_modules/
+backend/labour.db
+frontend/dist/
+.DS_Store
+*.log
+.env
