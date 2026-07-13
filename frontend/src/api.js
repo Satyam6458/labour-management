@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+const API_BASE = import.meta.env.PROD 
+  ? 'https://labour-api.onrender.com/api' 
+  : '/api';
+
 const API = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' }
 });
 
