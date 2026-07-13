@@ -209,12 +209,12 @@ app.get('/api/payments', (req, res) => {
     }
 });
 
-// Add payment (protected)
+// Add payment (protected) - now accepts negative amounts
 app.post('/api/payments', authMiddleware, (req, res) => {
     try {
         const { labourId, amount, type, date, paymentSubType, note } = req.body;
 
-        if (!labourId || !amount || !type || !date) {
+        if (!labourId || amount === undefined || amount === '' || !type || !date) {
             return res.status(400).json({ error: 'labourId, amount, type, and date are required' });
         }
 
@@ -230,9 +230,10 @@ app.post('/api/payments', authMiddleware, (req, res) => {
         if (!labour) return res.status(404).json({ error: 'Labour not found' });
 
         const id = generateId();
+        const finalAmount = parseFloat(amount);
         db.prepare(
             'INSERT INTO payments (id, labourId, amount, type, date, paymentSubType, note) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).run(id, labourId, parseFloat(amount), type, date, paymentSubType || 'Regular', note || '');
+        ).run(id, labourId, finalAmount, type, date, paymentSubType || 'Regular', note || '');
 
         const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
         res.status(201).json(payment);
