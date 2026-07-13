@@ -35,6 +35,8 @@ db.exec(`
     amount REAL NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('Online','Offline')),
     date TEXT NOT NULL,
+    paymentSubType TEXT NOT NULL DEFAULT 'Regular',
+    note TEXT DEFAULT '',
     FOREIGN KEY (labourId) REFERENCES labours(id) ON DELETE CASCADE
   );
 

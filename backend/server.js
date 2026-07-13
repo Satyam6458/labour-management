@@ -23,11 +23,39 @@ function todayStr() {
         String(d.getDate()).padStart(2, '0');
 }
 
+// Simple admin auth (no password hashing for simplicity - upgrade later)
+const ADMIN_USERNAME = 'admin';
+const ADMIN_PASSWORD = 'admin123';
+
+// ============================
+// AUTH
+// ============================
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+        const token = crypto.randomBytes(16).toString('hex');
+        // Store token in memory (simple approach)
+        if (!global.tokens) global.tokens = [];
+        global.tokens.push(token);
+        res.json({ success: true, token, username });
+    } else {
+        res.status(401).json({ error: 'Invalid credentials' });
+    }
+});
+
+function authMiddleware(req, res, next) {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token || !global.tokens?.includes(token)) {
+        return res.status(401).json({ error: 'Unauthorized. Please login.' });
+    }
+    next();
+}
+
 // ============================
 // LABOUR CRUD
 // ============================
 
-// Get all labours
+// Get all labours (public - no auth needed for basic view)
 app.get('/api/labours', (req, res) => {
     try {
         const labours = db.prepare('SELECT * FROM labours ORDER BY name ASC').all();
@@ -48,8 +76,8 @@ app.get('/api/labours/:id', (req, res) => {
     }
 });
 
-// Add labour
-app.post('/api/labours', (req, res) => {
+// Add labour (protected)
+app.post('/api/labours', authMiddleware, (req, res) => {
     try {
         const { name, workType, dailyWage, phone } = req.body;
 
@@ -77,12 +105,11 @@ app.post('/api/labours', (req, res) => {
 });
 
 // Delete labour
-app.delete('/api/labours/:id', (req, res) => {
+app.delete('/api/labours/:id', authMiddleware, (req, res) => {
     try {
         const labour = db.prepare('SELECT * FROM labours WHERE id = ?').get(req.params.id);
         if (!labour) return res.status(404).json({ error: 'Labour not found' });
 
-        // CASCADE will delete attendances and payments
         db.prepare('DELETE FROM labours WHERE id = ?').run(req.params.id);
         res.json({ message: 'Labour deleted successfully' });
     } catch (err) {
@@ -119,7 +146,7 @@ app.get('/api/attendances', (req, res) => {
 });
 
 // Mark attendance
-app.post('/api/attendances', (req, res) => {
+app.post('/api/attendances', authMiddleware, (req, res) => {
     try {
         const { labourId, date, status, workSubType, wageRate } = req.body;
 
@@ -131,11 +158,9 @@ app.post('/api/attendances', (req, res) => {
             return res.status(400).json({ error: 'Invalid status. Must be Full Day, Half Day, Absent, or Overtime' });
         }
 
-        // Check labour exists
         const labour = db.prepare('SELECT id, dailyWage FROM labours WHERE id = ?').get(labourId);
         if (!labour) return res.status(404).json({ error: 'Labour not found' });
 
-        // Check duplicate
         const existing = db.prepare(
             'SELECT id FROM attendances WHERE labourId = ? AND date = ?'
         ).get(labourId, date);
@@ -184,10 +209,10 @@ app.get('/api/payments', (req, res) => {
     }
 });
 
-// Add payment
-app.post('/api/payments', (req, res) => {
+// Add payment (protected)
+app.post('/api/payments', authMiddleware, (req, res) => {
     try {
-        const { labourId, amount, type, date } = req.body;
+        const { labourId, amount, type, date, paymentSubType, note } = req.body;
 
         if (!labourId || !amount || !type || !date) {
             return res.status(400).json({ error: 'labourId, amount, type, and date are required' });
@@ -197,13 +222,17 @@ app.post('/api/payments', (req, res) => {
             return res.status(400).json({ error: 'Payment type must be Online or Offline' });
         }
 
+        if (!['Regular', 'Advance', 'Old Payment'].includes(paymentSubType || 'Regular')) {
+            return res.status(400).json({ error: 'Payment sub type must be Regular, Advance, or Old Payment' });
+        }
+
         const labour = db.prepare('SELECT id FROM labours WHERE id = ?').get(labourId);
         if (!labour) return res.status(404).json({ error: 'Labour not found' });
 
         const id = generateId();
         db.prepare(
-            'INSERT INTO payments (id, labourId, amount, type, date) VALUES (?, ?, ?, ?, ?)'
-        ).run(id, labourId, parseFloat(amount), type, date);
+            'INSERT INTO payments (id, labourId, amount, type, date, paymentSubType, note) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(id, labourId, parseFloat(amount), type, date, paymentSubType || 'Regular', note || '');
 
         const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
         res.status(201).json(payment);
@@ -246,8 +275,20 @@ app.get('/api/stats/:labourId', (req, res) => {
             }
         });
 
-        const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+        // Regular + Old payments count towards paid, Advance is separate (deducted)
+        let regularPaid = 0;
+        let advancePaid = 0;
+        payments.forEach(p => {
+            if (p.paymentSubType === 'Advance') {
+                advancePaid += p.amount;
+            } else {
+                regularPaid += p.amount;
+            }
+        });
+
+        const totalPaid = regularPaid;
         const dueAmount = totalEarned - totalPaid;
+        const advanceBalance = advancePaid; // Amount taken as advance
 
         res.json({
             labourId: labour.id,
@@ -257,7 +298,9 @@ app.get('/api/stats/:labourId', (req, res) => {
             totalDays,
             totalEarned,
             totalPaid,
-            dueAmount
+            dueAmount,
+            advanceBalance,
+            allPayments: payments
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -293,7 +336,17 @@ app.get('/api/stats', (req, res) => {
                 }
             });
 
-            const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+            let regularPaid = 0;
+            let advancePaid = 0;
+            payments.forEach(p => {
+                if (p.paymentSubType === 'Advance') {
+                    advancePaid += p.amount;
+                } else {
+                    regularPaid += p.amount;
+                }
+            });
+
+            const totalPaid = regularPaid;
             const dueAmount = totalEarned - totalPaid;
 
             return {
@@ -305,7 +358,8 @@ app.get('/api/stats', (req, res) => {
                 totalDays,
                 totalEarned,
                 totalPaid,
-                dueAmount
+                dueAmount,
+                advanceBalance: advancePaid
             };
         });
 
