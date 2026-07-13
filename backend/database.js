@@ -23,7 +23,9 @@ db.exec(`
     id TEXT PRIMARY KEY,
     labourId TEXT NOT NULL,
     date TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('Present','Absent','Half Day','Overtime')),
+    status TEXT NOT NULL CHECK(status IN ('Full Day','Half Day','Absent','Overtime')),
+    workSubType TEXT NOT NULL DEFAULT 'Normal',
+    wageRate REAL NOT NULL DEFAULT 0,
     FOREIGN KEY (labourId) REFERENCES labours(id) ON DELETE CASCADE
   );
 

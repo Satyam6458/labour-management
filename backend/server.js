@@ -121,18 +121,18 @@ app.get('/api/attendances', (req, res) => {
 // Mark attendance
 app.post('/api/attendances', (req, res) => {
     try {
-        const { labourId, date, status } = req.body;
+        const { labourId, date, status, workSubType, wageRate } = req.body;
 
         if (!labourId || !date || !status) {
             return res.status(400).json({ error: 'labourId, date, and status are required' });
         }
 
-        if (!['Present', 'Absent', 'Half Day', 'Overtime'].includes(status)) {
-            return res.status(400).json({ error: 'Invalid status' });
+        if (!['Full Day', 'Half Day', 'Absent', 'Overtime'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status. Must be Full Day, Half Day, Absent, or Overtime' });
         }
 
         // Check labour exists
-        const labour = db.prepare('SELECT id FROM labours WHERE id = ?').get(labourId);
+        const labour = db.prepare('SELECT id, dailyWage FROM labours WHERE id = ?').get(labourId);
         if (!labour) return res.status(404).json({ error: 'Labour not found' });
 
         // Check duplicate
@@ -144,9 +144,10 @@ app.post('/api/attendances', (req, res) => {
         }
 
         const id = generateId();
+        const effectiveWage = wageRate || labour.dailyWage;
         db.prepare(
-            'INSERT INTO attendances (id, labourId, date, status) VALUES (?, ?, ?, ?)'
-        ).run(id, labourId, date, status);
+            'INSERT INTO attendances (id, labourId, date, status, workSubType, wageRate) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(id, labourId, date, status, workSubType || 'Normal', effectiveWage);
 
         const attendance = db.prepare('SELECT * FROM attendances WHERE id = ?').get(id);
         res.status(201).json(attendance);
@@ -233,15 +234,15 @@ app.get('/api/stats/:labourId', (req, res) => {
         let totalEarned = 0;
 
         attendances.forEach(a => {
-            if (a.status === 'Present') {
+            if (a.status === 'Full Day') {
                 totalDays += 1;
-                totalEarned += labour.dailyWage;
+                totalEarned += a.wageRate;
             } else if (a.status === 'Half Day') {
                 totalDays += 0.5;
-                totalEarned += labour.dailyWage * 0.5;
+                totalEarned += a.wageRate * 0.5;
             } else if (a.status === 'Overtime') {
                 totalDays += 1;
-                totalEarned += labour.dailyWage * 1.5;
+                totalEarned += a.wageRate * 1.5;
             }
         });
 
@@ -280,15 +281,15 @@ app.get('/api/stats', (req, res) => {
             let totalEarned = 0;
 
             attendances.forEach(a => {
-                if (a.status === 'Present') {
+                if (a.status === 'Full Day') {
                     totalDays += 1;
-                    totalEarned += labour.dailyWage;
+                    totalEarned += a.wageRate;
                 } else if (a.status === 'Half Day') {
                     totalDays += 0.5;
-                    totalEarned += labour.dailyWage * 0.5;
+                    totalEarned += a.wageRate * 0.5;
                 } else if (a.status === 'Overtime') {
                     totalDays += 1;
-                    totalEarned += labour.dailyWage * 1.5;
+                    totalEarned += a.wageRate * 1.5;
                 }
             });
 

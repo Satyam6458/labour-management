@@ -6,6 +6,15 @@ import {
   getAllStats, getLabourStats
 } from './api';
 
+const WORK_SUB_TYPES = [
+  { name: 'Normal Work', multiplier: 1.0 },
+  { name: 'Cement Work', multiplier: 1.2 },
+  { name: 'Plaster Work', multiplier: 1.3 },
+  { name: 'Tile Work', multiplier: 1.25 },
+  { name: 'Painting Work', multiplier: 1.1 },
+  { name: 'Extra Heavy Work', multiplier: 1.5 },
+];
+
 function App() {
   const [labours, setLabours] = useState([]);
   const [stats, setStats] = useState([]);
@@ -17,7 +26,12 @@ function App() {
 
   // Form states
   const [labourForm, setLabourForm] = useState({ name: '', workType: '', dailyWage: '', phone: '' });
-  const [attendanceForm, setAttendanceForm] = useState({ labourId: '', date: todayStr(), status: 'Present' });
+
+  const [attendanceForm, setAttendanceForm] = useState({
+    labourId: '', date: todayStr(), status: 'Full Day',
+    workSubType: 'Normal Work', wageRate: ''
+  });
+
   const [paymentForm, setPaymentForm] = useState({ labourId: '', amount: '', type: 'Online', date: todayStr() });
 
   function todayStr() {
@@ -69,14 +83,18 @@ function App() {
   // ==================== MARK ATTENDANCE ====================
   const handleMarkAttendance = async (e) => {
     e.preventDefault();
-    const { labourId, date, status } = attendanceForm;
+    const { labourId, date, status, workSubType, wageRate } = attendanceForm;
     if (!labourId || !date) {
       showToast('Please select labour and date!', 'error');
       return;
     }
     try {
-      await markAttendance({ labourId, date, status });
-      showToast(`Attendance marked as ${status}!`, 'success');
+      await markAttendance({
+        labourId, date, status,
+        workSubType,
+        wageRate: parseFloat(wageRate) || 0
+      });
+      showToast(`Attendance marked as ${status} (${workSubType})!`, 'success');
       setAttendanceForm({ ...attendanceForm, labourId: '', date: todayStr() });
       await loadData();
       if (selectedLabour) loadDetail(selectedLabour);
@@ -122,7 +140,7 @@ function App() {
   const loadDetail = async (labourId) => {
     try {
       const [labourRes, attRes, payRes, statsRes] = await Promise.all([
-        getLabours(), // we filter
+        getLabours(),
         getAttendances(labourId),
         getPayments(labourId),
         getLabourStats(labourId)
@@ -146,6 +164,22 @@ function App() {
     setDetailData(null);
   };
 
+  // ==================== AUTO-CALCULATE WAGE ====================
+  const handleAttendanceLabourChange = (labourId) => {
+    const labour = labours.find(l => l.id === labourId);
+    const subType = WORK_SUB_TYPES.find(s => s.name === attendanceForm.workSubType) || WORK_SUB_TYPES[0];
+    const wage = labour ? Math.round(labour.dailyWage * subType.multiplier) : '';
+    setAttendanceForm({ ...attendanceForm, labourId, wageRate: wage });
+  };
+
+  const handleWorkSubTypeChange = (workSubType) => {
+    const labourId = attendanceForm.labourId;
+    const labour = labours.find(l => l.id === labourId);
+    const subType = WORK_SUB_TYPES.find(s => s.name === workSubType) || WORK_SUB_TYPES[0];
+    const wage = labour ? Math.round(labour.dailyWage * subType.multiplier) : '';
+    setAttendanceForm({ ...attendanceForm, workSubType, wageRate: wage });
+  };
+
   // ==================== FILTERED LABOURS ====================
   const filteredStats = stats.filter(s =>
     !search || s.labourName.toLowerCase().includes(search.toLowerCase()) ||
@@ -164,7 +198,6 @@ function App() {
 
   return (
     <div className="container">
-      {/* Toast */}
       {toast && <div className={`toast show ${toast.type}`}>{toast.msg}</div>}
 
       <header>
@@ -183,7 +216,7 @@ function App() {
                 onChange={e => setLabourForm({ ...labourForm, name: e.target.value })} required />
             </div>
             <div className="form-group">
-              <label>Work Type *</label>
+              <label>Work Category *</label>
               <select value={labourForm.workType}
                 onChange={e => setLabourForm({ ...labourForm, workType: e.target.value })} required>
                 <option value="">-- Select --</option>
@@ -201,7 +234,7 @@ function App() {
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label>Daily Wage (₹) *</label>
+              <label>Base Daily Wage (₹) *</label>
               <input type="number" placeholder="e.g. 500" min="1" value={labourForm.dailyWage}
                 onChange={e => setLabourForm({ ...labourForm, dailyWage: e.target.value })} required />
             </div>
@@ -223,7 +256,7 @@ function App() {
             <div className="form-group">
               <label>Select Labour *</label>
               <select value={attendanceForm.labourId}
-                onChange={e => setAttendanceForm({ ...attendanceForm, labourId: e.target.value })} required>
+                onChange={e => handleAttendanceLabourChange(e.target.value)} required>
                 <option value="">-- Select --</option>
                 {labours.map(l => (
                   <option key={l.id} value={l.id}>{l.name} ({l.workType})</option>
@@ -238,14 +271,34 @@ function App() {
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label>Status *</label>
+              <label>Attendance Type *</label>
               <select value={attendanceForm.status}
                 onChange={e => setAttendanceForm({ ...attendanceForm, status: e.target.value })} required>
-                <option value="Present">✅ Present</option>
-                <option value="Absent">❌ Absent</option>
+                <option value="Full Day">✅ Full Day</option>
                 <option value="Half Day">⏳ Half Day</option>
+                <option value="Absent">❌ Absent</option>
                 <option value="Overtime">⚡ Overtime</option>
               </select>
+            </div>
+            <div className="form-group">
+              <label>Work Type *</label>
+              <select value={attendanceForm.workSubType}
+                onChange={e => handleWorkSubTypeChange(e.target.value)} required>
+                {WORK_SUB_TYPES.map(w => (
+                  <option key={w.name} value={w.name}>{w.name} (×{w.multiplier})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Wage Rate for this Work (₹)</label>
+              <input type="number" placeholder="Auto-calculated" min="1"
+                value={attendanceForm.wageRate}
+                onChange={e => setAttendanceForm({ ...attendanceForm, wageRate: e.target.value })} />
+              <small style={{ color: '#888', fontSize: '0.75em' }}>
+                Auto-calculated based on base wage × work type multiplier. You can edit manually.
+              </small>
             </div>
           </div>
           <button type="submit" className="btn btn-success">Mark Attendance</button>
@@ -336,7 +389,9 @@ function App() {
               <div>
                 <h3>{detailData.labour.name}</h3>
                 <div style={{ marginTop: '4px', fontSize: '0.9em', color: '#666' }}>
-                  📞 {detailData.labour.phone || 'N/A'} &nbsp;|&nbsp; 💰 Daily Wage: ₹{detailData.labour.dailyWage}
+                  📞 {detailData.labour.phone || 'N/A'} &nbsp;|&nbsp;
+                  💰 Base Wage: ₹{detailData.labour.dailyWage} &nbsp;|&nbsp;
+                  🏷️ {detailData.labour.workType}
                 </div>
               </div>
               <div>
@@ -375,17 +430,34 @@ function App() {
               <p style={{ color: '#999', fontSize: '0.9em' }}>No attendance records yet.</p>
             ) : (
               <table className="detail-table">
-                <thead><tr><th>Date</th><th>Status</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th>Work Type</th>
+                    <th>Wage Rate</th>
+                    <th>Earned</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {detailData.attendances.map(a => {
                     let badgeClass = 'badge-present';
                     if (a.status === 'Absent') badgeClass = 'badge-absent';
                     else if (a.status === 'Half Day') badgeClass = 'badge-halfday';
                     else if (a.status === 'Overtime') badgeClass = 'badge-overtime';
+
+                    let earned = 0;
+                    if (a.status === 'Full Day') earned = a.wageRate;
+                    else if (a.status === 'Half Day') earned = a.wageRate * 0.5;
+                    else if (a.status === 'Overtime') earned = a.wageRate * 1.5;
+
                     return (
                       <tr key={a.id}>
                         <td>{formatDate(a.date)}</td>
                         <td><span className={`badge ${badgeClass}`}>{a.status}</span></td>
+                        <td>{a.workSubType || 'Normal'}</td>
+                        <td>₹{a.wageRate}</td>
+                        <td>₹{earned.toLocaleString()}</td>
                       </tr>
                     );
                   })}
